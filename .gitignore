@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.screenclick_pro.json
+screenclick_crash.log
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
