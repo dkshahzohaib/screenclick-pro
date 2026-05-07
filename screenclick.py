@@ -71,18 +71,16 @@ TEXT    = "#e2e8f0"
 MUTED   = "#64748b"
 
 # cursor overlay colours
-CUR_IDLE  = "#a78bfa"   # soft purple  — sleeping ghost
-CUR_WAKE  = "#38bdf8"   # sky blue     — awake / moving
-CUR_CLICK = "#fb923c"   # orange       — clicking!
+CUR_IDLE  = "#a78bfa"   # soft purple  — sleeping chibi
 
-# ── ghost shape on a 48×58 black (transparent) canvas ────────────────────────
-#  Smooth polygon: rounded head + wavy skirt (3 bumps)
-GHOST_BODY = [
-    4, 28,   4,12,   8, 5,   16, 1,   24, 0,
-    32, 1,  40, 5,  44,12,  44,28,
-    44,52,  37,43,  32,52,  24,43,  16,52,   9,43,   4,52,
-]
-CURSOR_W, CURSOR_H = 48, 58
+# chibi character palette
+HEAD_FILL  = "#fde68a"   # warm skin tone
+HAIR_FILL  = "#1e293b"   # dark hair
+BODY_FILL  = "#f472b6"   # cute pink outfit
+HAMMER_COL = "#6b7280"   # grey hammer head
+HANDLE_COL = "#92400e"   # brown handle
+
+CURSOR_W, CURSOR_H = 80, 96
 
 
 def corner_pos(corner: str, sw: int, sh: int) -> tuple:
@@ -96,13 +94,13 @@ def corner_pos(corner: str, sw: int, sh: int) -> tuple:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FloatingCursor
+# FloatingCursor  — cute anime chibi with hammer
 # ─────────────────────────────────────────────────────────────────────────────
 class FloatingCursor:
     """
-    Tiny always-on-top transparent window shaped like an arrow.
-    Rests/pulses in a corner when idle.
-    On demand: glides to target → clicks → returns.
+    Tiny always-on-top transparent window with a cute anime chibi character.
+    Sleeps in a corner. On a match: glides over, shows angry face + raises
+    hammer → SMASH + POW! (click fires here) → holds 700 ms → returns home.
     """
 
     def __init__(self, root: tk.Tk, corner: str = "bottom-right"):
@@ -112,8 +110,8 @@ class FloatingCursor:
         self._pulse_job: Optional[str] = None
         self._pulse_val = 0.0
         self._pulse_dir = 1
-        self.busy  = False
-        self._alive = True   # set False on destroy() to stop all pending callbacks
+        self.busy   = False
+        self._alive = True
 
         self._win = tk.Toplevel(root)
         self._win.overrideredirect(True)
@@ -129,52 +127,107 @@ class FloatingCursor:
                              bg="black", highlightthickness=0)
         self._cv.pack()
 
-        # ── ghost body (drop shadow) ──────────────────────────────────────────
-        shadow = [p+3 if i%2==0 else p+3 for i,p in enumerate(GHOST_BODY)]
-        self._cv.create_polygon(*shadow, fill="#1a1a2e", outline="", smooth=True)
+        # body (drawn first so head overlaps it)
+        self._body_sh = self._cv.create_oval(
+            18, 52, 62, 76, fill=BODY_FILL, outline="#be185d", width=1.5)
 
-        # ── ghost body ────────────────────────────────────────────────────────
-        self._body = self._cv.create_polygon(
-            *GHOST_BODY, fill=CUR_IDLE, outline="#ffffff", width=1.5, smooth=True)
+        # head base
+        self._head_sh = self._cv.create_oval(
+            6, 2, 74, 58, fill=HEAD_FILL, outline="#d97706", width=1.5)
 
-        # ── eyes (closed = sleepy lines, open = circles) ─────────────────────
-        # Sleepy closed eyes (two curved lines drawn as thin arcs)
-        self._eye_l_closed = self._cv.create_arc(
-            11, 17, 20, 25, start=0, extent=180,
-            style="arc", outline="#1a1a2e", width=2)
-        self._eye_r_closed = self._cv.create_arc(
-            27, 17, 36, 25, start=0, extent=180,
-            style="arc", outline="#1a1a2e", width=2)
+        # hair (smooth polygon on top of head)
+        self._hair_sh = self._cv.create_polygon(
+            6, 32,   6, 14,  14,  4,  28,  0,  40,  0,
+            52,  2,  66, 10,  74, 24,  74, 36,
+            66, 22,  54, 12,  40,  8,  26,  8,  14, 16,
+            fill=HAIR_FILL, outline="", smooth=True)
 
-        # Open eyes (hidden until wake state)
-        self._eye_l_open = self._cv.create_oval(
-            11, 15, 21, 26, fill="#1a1a2e", outline="", state="hidden")
-        self._eye_r_open = self._cv.create_oval(
-            27, 15, 37, 26, fill="#1a1a2e", outline="", state="hidden")
-        # Cute white pupils
+        # closed eyes (sleeping arcs, shown in idle)
+        self._eye_l_c = self._cv.create_arc(
+            16, 24, 34, 38, start=0, extent=180,
+            style="arc", outline=HAIR_FILL, width=2.5)
+        self._eye_r_c = self._cv.create_arc(
+            46, 24, 64, 38, start=0, extent=180,
+            style="arc", outline=HAIR_FILL, width=2.5)
+
+        # open anime eyes (hidden until wake / angry)
+        self._eye_l_o = self._cv.create_oval(
+            14, 20, 36, 42, fill="white", outline=HAIR_FILL, width=1.5, state="hidden")
+        self._eye_r_o = self._cv.create_oval(
+            44, 20, 66, 42, fill="white", outline=HAIR_FILL, width=1.5, state="hidden")
         self._pupil_l = self._cv.create_oval(
-            13, 16, 17, 21, fill="white", outline="", state="hidden")
+            20, 25, 30, 37, fill=HAIR_FILL, outline="", state="hidden")
         self._pupil_r = self._cv.create_oval(
-            29, 16, 33, 21, fill="white", outline="", state="hidden")
+            50, 25, 60, 37, fill=HAIR_FILL, outline="", state="hidden")
+        self._shine_l = self._cv.create_oval(
+            22, 27, 26, 31, fill="white", outline="", state="hidden")
+        self._shine_r = self._cv.create_oval(
+            52, 27, 56, 31, fill="white", outline="", state="hidden")
 
-        # ── rosy cheeks ───────────────────────────────────────────────────────
+        # angry diagonal eyebrows (hidden until angry / smash)
+        self._brow_l = self._cv.create_line(
+            14, 17, 36, 23, fill=HAIR_FILL, width=3, capstyle="round", state="hidden")
+        self._brow_r = self._cv.create_line(
+            44, 23, 66, 17, fill=HAIR_FILL, width=3, capstyle="round", state="hidden")
+
+        # rosy cheeks (shown when running / happy)
         self._cheek_l = self._cv.create_oval(
-            8, 24, 16, 30, fill="#f9a8d4", outline="", state="hidden")
+            8, 34, 22, 44, fill="#f9a8d4", outline="", state="hidden")
         self._cheek_r = self._cv.create_oval(
-            32, 24, 40, 30, fill="#f9a8d4", outline="", state="hidden")
+            58, 34, 72, 44, fill="#f9a8d4", outline="", state="hidden")
 
-        # ── sleeping zzz ──────────────────────────────────────────────────────
+        # smile arc
+        self._mouth_smile = self._cv.create_arc(
+            28, 42, 52, 54, start=200, extent=140,
+            style="arc", outline=HAIR_FILL, width=2)
+
+        # gritted-teeth mouth (angry, hidden by default)
+        self._mouth_bar = self._cv.create_rectangle(
+            28, 46, 52, 54, fill=HAIR_FILL, outline="", state="hidden")
+        self._teeth     = self._cv.create_rectangle(
+            30, 47, 50, 52, fill="white",   outline="", state="hidden")
+
+        # sleeping zzz
         self._zzz = self._cv.create_text(
-            44, 4, text="zzz", anchor="ne",
+            76, 0, text="zzz", anchor="ne",
             fill=CUR_IDLE, font=("Segoe UI", 7, "bold"))
+
+        # hammer arm — hidden until click states
+        # raised  coords: arm(60,64→74,46)  handle(74,46→76,22)  head rect(64,8→80,24)
+        # smashed coords: arm(60,64→74,80)  handle(74,80→76,94)  head rect(64,90→80,104)
+        self._arm    = self._cv.create_line(
+            60, 64, 74, 46, fill=HEAD_FILL,  width=6, capstyle="round", state="hidden")
+        self._handle = self._cv.create_line(
+            74, 46, 76, 22, fill=HANDLE_COL, width=4, capstyle="round", state="hidden")
+        self._hammer = self._cv.create_rectangle(
+            64, 8, 80, 24, fill=HAMMER_COL, outline="#374151", width=2, state="hidden")
+
+        # impact lines radiating from hammer strike point
+        self._impact = []
+        for x0, y0, x1, y1 in [
+            (56, 58, 44, 50), (62, 54, 54, 44), (68, 58, 78, 50),
+            (66, 64, 78, 70), (58, 68, 48, 76),
+        ]:
+            self._impact.append(self._cv.create_line(
+                x0, y0, x1, y1, fill="#fbbf24", width=2,
+                capstyle="round", state="hidden"))
+
+        self._pow = self._cv.create_text(
+            40, 82, text="POW!", anchor="center",
+            fill="#fbbf24", font=("Segoe UI", 10, "bold"), state="hidden")
 
         self._snap()
         self._start_pulse()
 
-    # ── safe canvas/window helpers (no-op after destroy) ─────────────────────
+    # ── safe canvas / window helpers ──────────────────────────────────────────
     def _cfg(self, item, **kw):
         if not self._alive: return
         try: self._cv.itemconfig(item, **kw)
+        except Exception: pass
+
+    def _coords(self, item, *args):
+        if not self._alive: return
+        try: self._cv.coords(item, *args)
         except Exception: pass
 
     def _win_alpha(self, a: float):
@@ -184,43 +237,56 @@ class FloatingCursor:
 
     def _state(self, s: str):
         if not self._alive: return
+
+        def sh(*items):
+            for it in items: self._cfg(it, state="normal")
+
+        def hd(*items):
+            for it in items: self._cfg(it, state="hidden")
+
+        open_eyes  = [self._eye_l_o, self._eye_r_o,
+                      self._pupil_l, self._pupil_r,
+                      self._shine_l, self._shine_r]
+        close_eyes = [self._eye_l_c, self._eye_r_c]
+        brows      = [self._brow_l, self._brow_r]
+        cheeks     = [self._cheek_l, self._cheek_r]
+        mouth_ang  = [self._mouth_bar, self._teeth]
+        hammer_all = [self._arm, self._handle, self._hammer]
+        impact_all = self._impact + [self._pow]
+
         if s == "idle":
-            # Sleeping ghost: closed eyes, zzz, soft purple, cheeks hidden
-            self._cfg(self._body, fill=CUR_IDLE)
-            self._cfg(self._zzz,  text="zzz", fill=CUR_IDLE)
-            self._cfg(self._eye_l_closed, state="normal")
-            self._cfg(self._eye_r_closed, state="normal")
-            self._cfg(self._eye_l_open,   state="hidden")
-            self._cfg(self._eye_r_open,   state="hidden")
-            self._cfg(self._pupil_l,      state="hidden")
-            self._cfg(self._pupil_r,      state="hidden")
-            self._cfg(self._cheek_l,      state="hidden")
-            self._cfg(self._cheek_r,      state="hidden")
+            sh(*close_eyes, self._mouth_smile)
+            hd(*open_eyes, *brows, *cheeks, *mouth_ang, *hammer_all, *impact_all)
+            self._cfg(self._zzz, text="zzz", fill=CUR_IDLE)
+            self._cfg(self._head_sh, fill=HEAD_FILL)
 
         elif s == "wake":
-            # Moving ghost: open eyes, no zzz, sky blue, rosy cheeks
-            self._cfg(self._body, fill=CUR_WAKE)
-            self._cfg(self._zzz,  text="")
-            self._cfg(self._eye_l_closed, state="hidden")
-            self._cfg(self._eye_r_closed, state="hidden")
-            self._cfg(self._eye_l_open,   state="normal")
-            self._cfg(self._eye_r_open,   state="normal")
-            self._cfg(self._pupil_l,      state="normal")
-            self._cfg(self._pupil_r,      state="normal")
-            self._cfg(self._cheek_l,      state="normal")
-            self._cfg(self._cheek_r,      state="normal")
+            sh(*open_eyes, *cheeks, self._mouth_smile)
+            hd(*close_eyes, *brows, *mouth_ang, *hammer_all, *impact_all)
+            self._cfg(self._zzz, text="")
+            self._cfg(self._head_sh, fill=HEAD_FILL)
             self._win_alpha(1.0)
 
-        elif s == "click":
-            # Clicking ghost: star eyes, orange flash
-            self._cfg(self._body, fill=CUR_CLICK)
-            self._cfg(self._zzz,  text="!")
-            self._cfg(self._eye_l_open, fill=CUR_CLICK, state="normal")
-            self._cfg(self._eye_r_open, fill=CUR_CLICK, state="normal")
-            self._cfg(self._pupil_l,    state="normal")
-            self._cfg(self._pupil_r,    state="normal")
-            self._cfg(self._eye_l_open, fill="#1a1a2e")
-            self._cfg(self._eye_r_open, fill="#1a1a2e")
+        elif s == "angry":
+            # hammer raised, angry face
+            sh(*open_eyes, *brows, *mouth_ang, *hammer_all)
+            hd(*close_eyes, *cheeks, self._mouth_smile, *impact_all)
+            self._cfg(self._zzz, text="!!")
+            self._cfg(self._head_sh, fill="#ffc8a0")
+            self._coords(self._arm,    60, 64, 74, 46)
+            self._coords(self._handle, 74, 46, 76, 22)
+            self._coords(self._hammer, 64,  8, 80, 24)
+            self._win_alpha(1.0)
+
+        elif s == "smash":
+            # hammer slammed down + POW!
+            sh(*open_eyes, *brows, *mouth_ang, *hammer_all, *impact_all)
+            hd(*close_eyes, *cheeks, self._mouth_smile)
+            self._cfg(self._zzz, text="")
+            self._cfg(self._head_sh, fill="#ffc8a0")
+            self._coords(self._arm,    60, 64, 74, 80)
+            self._coords(self._handle, 74, 80, 76, 94)
+            self._coords(self._hammer, 64, 90, 80, 104)
             self._win_alpha(1.0)
 
     # ── idle pulse ────────────────────────────────────────────────────────────
@@ -263,7 +329,7 @@ class FloatingCursor:
         dx, dy = tx-sx, ty-sy
 
         def step(i):
-            if not self._alive: return          # abort if destroyed mid-flight
+            if not self._alive: return
             t = 1 - (1 - i/steps)**2
             x = int(sx + dx*t); y = int(sy + dy*t)
             self._cx, self._cy = x, y
@@ -275,7 +341,7 @@ class FloatingCursor:
                 done()
         step(1)
 
-    # ── wake → glide → signal caller → return to corner ──────────────────────
+    # ── glide → angry → SMASH → click → hold → return ────────────────────────
     def wake_and_click(self, sx: int, sy: int,
                        on_at_target: Callable,
                        on_done: Callable):
@@ -286,11 +352,19 @@ class FloatingCursor:
 
         def arrived():
             if not self._alive: return
-            self._state("click")
-            # Caller does the real click then calls go_home()
-            self._root.after(80, lambda: on_at_target(go_home))
+            self._state("angry")               # hammer raised, angry face
+            self._root.after(420, smash)       # hold raised pose then swing
+
+        def smash():
+            if not self._alive: return
+            self._state("smash")               # hammer down + POW!
+            self._root.after(60, lambda: on_at_target(go_home))  # fire click
 
         def go_home():
+            if not self._alive: return
+            self._root.after(700, _return)     # hold smash so POW! is visible
+
+        def _return():
             if not self._alive: return
             self._state("wake")
             sw = self._root.winfo_screenwidth()
@@ -306,7 +380,7 @@ class FloatingCursor:
             self.busy = False
             on_done()
 
-        self._move(sx-4, sy-4, steps=22, ms=11, done=arrived)
+        self._move(sx - 4, sy - 4, steps=22, ms=11, done=arrived)
 
     def destroy(self):
         self._alive = False
